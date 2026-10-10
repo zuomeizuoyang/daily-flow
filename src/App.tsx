@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {CheckSquare,CalendarDays,Inbox,Sun,CalendarRange,Layers,Hash,Plus,Search,ChevronDown,ChevronRight,Timer,Grid2X2,Flame,Settings,PanelLeftClose,PanelLeft,ArrowDownWideNarrow,LayoutList,Columns3,Trash2,Download,Upload,Flag,X,RefreshCw,Cloud,CloudOff,Lock} from 'lucide-react';
+import {CheckSquare,CalendarDays,Inbox,Sun,CalendarRange,Layers,Hash,Plus,Search,ChevronDown,ChevronRight,Timer,Grid2X2,Flame,Settings,PanelLeftClose,PanelLeft,ArrowDownWideNarrow,LayoutList,Columns3,Trash2,Download,Upload,Flag,X,RefreshCw,Cloud,CloudOff,Lock,Lightbulb} from 'lucide-react';
 import {newTask,parseQuick,priorities,weights,matches,toggleTask,validateStore,mergeStore,uid,type Store,type Task} from './model';
 import {loadStore,saveStore,download,STORAGE_KEY} from './repository';
 import {loadSupabaseConfig,saveSupabaseConfig,fetchRemoteStore,pushRemoteStore,subscribeRemoteStore,sessionClientId,deriveSyncKey,getSavedAuthPassword,saveAuthPassword,clearAuthPassword,type SupabaseConfig} from './supabase';
@@ -7,12 +7,13 @@ import {localDate,hm,shiftDate,schedule} from './scheduler';
 import {TaskRow,Empty} from './components/TaskRow';
 import {TaskDetail} from './components/TaskDetail';
 import {CalendarView} from './components/CalendarView';
-import {FocusView,HabitsView} from './components/Tools';
+import {HabitsView} from './components/Tools';
+import {IdeasView} from './components/IdeasView';
 import {Modal} from './components/Modal';
 import {LockScreen} from './components/LockScreen';
 import './index.css';
 const smart=[{id:'inbox',name:'收集箱',icon:Inbox},{id:'today',name:'今天',icon:Sun},{id:'next7',name:'最近7天',icon:CalendarRange},{id:'all',name:'全部',icon:Layers}];
-const modules=[{id:'tasks',name:'任务',icon:CheckSquare},{id:'calendar',name:'日历',icon:CalendarDays},{id:'matrix',name:'四象限',icon:Grid2X2},{id:'focus',name:'专注',icon:Timer},{id:'habits',name:'习惯',icon:Flame}];
+const modules=[{id:'tasks',name:'任务',icon:CheckSquare},{id:'calendar',name:'日历',icon:CalendarDays},{id:'matrix',name:'四象限',icon:Grid2X2},{id:'ideas',name:'灵感',icon:Lightbulb},{id:'habits',name:'习惯',icon:Flame}];
 export default function App(){
  const [savedPwd,setSavedPwd]=useState<string|null>(getSavedAuthPassword);
  const [isAuthenticated,setIsAuthenticated]=useState<boolean>(Boolean(savedPwd));
@@ -118,7 +119,7 @@ export default function App(){
  {!['completed','trash'].includes(filter)&&completed.length>0&&<><button className="completed-heading" onClick={()=>setShowDone(!showDone)}>{showDone?<ChevronDown size={14}/>:<ChevronRight size={14}/>}已完成 {completed.length}</button>{showDone&&completed.map(t=><TaskRow key={t.id} task={t} lists={store.lists} selected={selected===t.id} onSelect={()=>setSelected(t.id)} onToggle={()=>toggle(t.id)}/>)}</>}</div><footer className="list-footer"><span>{filtered.reduce((n,t)=>n+t.minutes,0)} 分钟预计时长</span><span>Q 快速添加 · / 搜索</span></footer></>}
  {module==='calendar'&&<CalendarView tasks={store.tasks} date={date} onDate={setDate} onCreate={create} onMove={move} onSelect={setSelected}/>}
  {module==='matrix'&&<div className="quadrants">{[{key:'urgent',title:'重要且紧急',cls:'red'},{key:'high',title:'重要不紧急',cls:'yellow'},{key:'normal',title:'不重要但紧急',cls:'blue'},{key:'low',title:'不重要不紧急',cls:'gray'}].map(g=><section key={g.key} className={g.cls} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const id=e.dataTransfer.getData('text/task');if(id)patch(id,{priority:g.key as Task['priority']})}}><h3>{g.title}</h3>{store.tasks.filter(t=>!t.deleted&&!t.done&&t.priority===g.key).map(t=><TaskRow key={t.id} task={t} lists={store.lists} selected={t.id===selected} onSelect={()=>setSelected(t.id)} onToggle={()=>toggle(t.id)}/>)}</section>)}</div>}
- <div className={'focus-container '+(module==='focus'?'':'hidden-tool')}><FocusView store={store} change={change}/></div>{module==='habits'&&<HabitsView store={store} change={change}/>}
+ {module==='ideas'&&<IdeasView store={store} change={change} onNotify={notify}/>}{module==='habits'&&<HabitsView store={store} change={change}/>}
  </main>
  {task&&['tasks','calendar','matrix'].includes(module)?<TaskDetail key={task.id} task={task} lists={store.lists} onChange={p=>patch(task.id,p)} onToggle={()=>toggle(task.id)} onClose={()=>setSelected(null)} onNotify={notify} onTrash={()=>{patch(task.id,{deleted:!task.deleted});notify(task.deleted?'任务已恢复':'任务已移至垃圾桶，可恢复');setSelected(null)}}/>:module==='tasks'&&<aside className="detail-placeholder"><CheckSquare size={62} strokeWidth={1}/><p>选择一个任务，查看详情</p><small>安排好每一件小事</small></aside>}
  {toast&&<div className="toast" role="status">{toast}<button aria-label="关闭提示" onClick={()=>setToast('')}><X size={14}/></button></div>}
