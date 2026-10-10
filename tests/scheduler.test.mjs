@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {schedule,shiftDate} from '../src/scheduler.ts';
+const fixed=[{id:'f',title:'午餐',start:'12:00',end:'13:30'}];
+const task=(patch={})=>({id:'a',title:'测试',minutes:30,priority:'normal',status:'todo',date:'2026-09-14',color:'#4f46e5',...patch});
+assert.equal(schedule([task({earliest:'22:00'})],'2026-09-14',fixed).placed[0].start,1320);
+assert.equal(schedule([task({earliest:'12:15'})],'2026-09-14',fixed).placed[0].start,810);
+assert.equal(schedule([task({earliest:'23:50'})],'2026-09-14',fixed).pending.length,1);
+assert.equal(schedule([task({minutes:0})],'2026-09-14',fixed).pending.length,1);
+assert.equal(schedule([task({earliest:'15:00',due:'15:15'})],'2026-09-14',fixed).pending.length,1);
+assert.equal(schedule([task({manualStart:1000})],'2026-09-14',fixed).placed[0].start,1000);
+assert.equal(schedule([task()],'2026-09-15',fixed).placed.length,0);
+assert.equal(shiftDate('2026-03-01',-1),'2026-02-28');
+assert.equal(shiftDate('2026-12-01',0,1),'2027-01-01');
+const many=Array.from({length:100},(_,i)=>task({id:String(i),minutes:5}));const r=schedule(many,'2026-09-14',fixed);assert.equal(r.placed.length+r.pending.length,100);r.placed.slice(1).forEach((t,i)=>assert.ok(t.start>=r.placed[i].end));
+console.log('10 scheduler regression scenarios passed');

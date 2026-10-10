@@ -1,0 +1,8 @@
+import {Check,Flag,CalendarDays,Hash,ListTodo} from 'lucide-react';
+import {type Task,type List} from '../model';
+import {hm,localDate} from '../scheduler';
+export function TaskRow({task,lists,selected,onSelect,onToggle}:{task:Task;lists:List[];selected:boolean;onSelect:()=>void;onToggle:()=>void}){
+ return <div className={'task-row '+(selected?'selected ':'')+(task.done?'done':'')} draggable={!task.deleted} onDragStart={e=>{e.dataTransfer.setData('text/task',task.id);e.dataTransfer.effectAllowed='move'}}>
+ <button className={'checkbox priority-'+task.priority+(task.done?' checked':'')} aria-label={'完成 '+task.title} onClick={onToggle}>{task.done&&<Check size={12}/>}</button><button className="row-body" onClick={onSelect}><span className="row-title">{task.title}</span>{(task.notes||task.subtasks.length>0)&&<small className="row-description">{task.notes||`${task.subtasks.filter(s=>s.done).length}/${task.subtasks.length} 子任务`}</small>}</button><div className="row-meta">{task.tags.slice(0,2).map(t=><span key={t} className="tag"><Hash size={10}/>{t}</span>)}<small className="row-list">{lists.find(l=>l.id===task.listId)?.name||'收集箱'}</small>{task.date&&<span className={'row-date '+(!task.done&&task.date<localDate()?'overdue':'')}><CalendarDays size={12}/>{task.date===localDate()?'今天':task.date.slice(5)}{task.time!==undefined?' '+hm(task.time):''}</span>}{task.priority!=='low'&&<Flag size={13} className={'priority-'+task.priority}/>}</div></div>;
+}
+export function Empty({text='没有任务，享受轻松的一天。'}:{text?:string}){return <div className="empty"><ListTodo size={50} strokeWidth={1}/><h3>一切井井有条</h3><p>{text}</p></div>}

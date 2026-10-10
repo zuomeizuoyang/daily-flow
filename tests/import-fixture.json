@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "tasks": [
+    {
+      "id": "dd300be7-b63b-45b2-9333-fd7864e02c03",
+      "title": "导入验收：备份恢复",
+      "date": "2026-09-16",
+      "minutes": 30,
+      "priority": "low",
+      "listId": "learn",
+      "notes": "由回归测试生成，无真实个人信息",
+      "tags": [],
+      "subtasks": [],
+      "done": false,
+      "deleted": false,
+      "repeat": "none",
+      "created": 1789530054431,
+      "time": 840
+    }
+  ],
+  "lists": [
+    {
+      "id": "work",
+      "name": "工作",
+      "color": "#5278df"
+    },
+    {
+      "id": "life",
+      "name": "生活",
+      "color": "#51a98b"
+    },
+    {
+      "id": "learn",
+      "name": "学习",
+      "color": "#b093ce"
+    }
+  ],
+  "habits": [],
+  "focus": [],
+  "theme": "light"
+}

@@ -1,0 +1,22 @@
+const fs = require('fs');
+const p='src/main.tsx';let s=fs.readFileSync(p,'utf8');
+s=s.replace("const selectedTask=tasks.find(t=>t.id===selected)||day[0]", "const selectedTask=day.find(t=>t.id===selected)||day[0]");
+s=s.replace("const [due,setDue]=useState('');", "const [due,setDue]=useState('');const [priority,setPriority]=useState<Priority>('normal');const [draftDate,setDraftDate]=useState(today);const [manual,setManual]=useState(false);");
+s=s.replaceAll('onClick={()=>setShowAdd(true)}','onClick={()=>{setDraftDate(date);setManual(false);setShowAdd(true)}}');
+s=s.replace("priority:'normal',status:'todo',date,color:'#4f46e5',earliest:start||undefined", "priority,status:'todo',date:draftDate,color:'#7164ad',manualStart:manual&&start?Number(start.slice(0,2))*60+Number(start.slice(3)):undefined,earliest:start||undefined");
+s=s.replace("if(!title.trim())return;", "if(!title.trim()||!draftDate||!Number.isInteger(minutes)||minutes<5||minutes>1440)return;");
+s=s.replace("setSelected(t.id);setShowAdd(false)","setDate(draftDate);setSelected(t.id);setShowAdd(false)");
+s=s.replace("onClick={()=>setCalendar(v=>!v)}", "onClick={()=>{setMonth(date.slice(0,7));setCalendar(v=>!v)}}");
+s=s.replace("<NowPanel tasks={result.placed}",`<div className="week-strip">{Array.from({length:7},(_,i)=>shiftDate(date,i-((new Date(date+'T12:00:00').getDay()+6)%7))).map((d,i)=><button key={d} aria-pressed={d===date} onClick={()=>choose(d)}><small>{['周一','周二','周三','周四','周五','周六','周日'][i]}</small><b>{Number(d.slice(-2))}</b><span>{tasks.filter(t=>t.date===d).length||'—'}</span></button>)}</div><NowPanel tasks={result.placed}`);
+s=s.replace("className='task-row'", "className={'task-row '+(selectedTask?.id===t.id?'active':'')}");
+s=s.replace("className='check'", "className={'check '+(t.status==='done'?'checked':'')}");
+// Remove duplicated right-hand task list, keep detail and completion stats.
+const a=s.indexOf("<div className='glass rounded-2xl p-5'><div className='flex justify-between mb-4'><h2 className='font-semibold'>任务清单");const b=s.indexOf("<div className='glass rounded-2xl p-5 detail-card'>",a);if(a>=0&&b>a)s=s.slice(0,a)+s.slice(b);
+s=s.replace("<aside className='space-y-6'>", "<aside className='detail-sidebar space-y-6'>");
+s=s.replace("value={date} onChange={e=>setDate(e.target.value)}", "value={draftDate} onChange={e=>setDraftDate(e.target.value)}");
+s=s.replace("<button onClick={add}", `<label className="field">优先级<select value={priority} onChange={e=>setPriority(e.target.value as Priority)}>{Object.entries(labels).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label><label className="field"><span><input type="checkbox" checked={manual} onChange={e=>setManual(e.target.checked)}/> 按指定开始时间锁定</span></label><button disabled={!title.trim()||!draftDate||!Number.isInteger(minutes)||minutes<5||minutes>1440||(manual&&!start)} onClick={add}`);
+s=s.replace("<Timeline tasks=", `<Timeline onCreate={m=>{setStart(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));setDraftDate(date);setManual(true);setShowAdd(true)}} onResize={(id,start,minutes)=>update(id,{manualStart:start,earliest:undefined,minutes})} tasks=`);
+s=s.replace("update(id,{manualStart:start,start,end:start+", "update(id,{manualStart:start,earliest:undefined,start,end:start+");
+s=s.replace("<div className='text-xs text-slate-400'>选中任务</div>","<div className='text-xs text-slate-400'>任务详情</div>");
+s=s.replace("<button className='w-full mt-4", `<label className="field">时长（分钟）<input type="number" min="5" max="1440" value={selectedTask.minutes} onChange={e=>{const n=Number(e.target.value);if(n>=5&&n<=1440)update(selectedTask.id,{minutes:n})}}/></label>{selectedTask.manualStart!==undefined&&<button onClick={()=>update(selectedTask.id,{manualStart:undefined})}>解除时间锁定</button>}<button className='w-full mt-4`);
+fs.writeFileSync(p,s);
