@@ -59,3 +59,63 @@ export function mergeStore(current:Store,incoming:Store):Store{
  const incomingIdeas = Array.isArray(incoming.ideas) ? incoming.ideas.map(i=>({...i,id:uid()})) : [];
  return {...current,lists,tasks:[...current.tasks,...tasks],habits:[...current.habits,...incoming.habits.map(h=>({...h,id:uid()}))],ideas:[...(current.ideas||[]),...incomingIdeas],focus:[...current.focus,...(incoming.focus||[])]};
 }
+
+export function syncMergeStores(local: Store, remote: Store): Store {
+  const taskMap = new Map<string, Task>();
+  for (const t of remote.tasks || []) {
+    taskMap.set(t.id, t);
+  }
+  for (const t of local.tasks || []) {
+    if (!taskMap.has(t.id)) {
+      taskMap.set(t.id, t);
+    } else {
+      const rem = taskMap.get(t.id)!;
+      taskMap.set(t.id, t.created > rem.created ? t : rem);
+    }
+  }
+
+  const ideaMap = new Map<string, Idea>();
+  for (const i of remote.ideas || []) {
+    ideaMap.set(i.id, i);
+  }
+  for (const i of local.ideas || []) {
+    if (!ideaMap.has(i.id)) {
+      ideaMap.set(i.id, i);
+    }
+  }
+  const ideas = Array.from(ideaMap.values()).sort((a, b) => b.created - a.created);
+
+  const listMap = new Map<string, List>();
+  for (const l of remote.lists || []) {
+    listMap.set(l.id, l);
+  }
+  for (const l of local.lists || []) {
+    if (!listMap.has(l.id)) {
+      listMap.set(l.id, l);
+    }
+  }
+
+  const habitMap = new Map<string, Habit>();
+  for (const h of remote.habits || []) {
+    habitMap.set(h.id, { ...h, days: [...(h.days || [])] });
+  }
+  for (const h of local.habits || []) {
+    if (!habitMap.has(h.id)) {
+      habitMap.set(h.id, { ...h, days: [...(h.days || [])] });
+    } else {
+      const ex = habitMap.get(h.id)!;
+      ex.days = Array.from(new Set([...ex.days, ...(h.days || [])]));
+    }
+  }
+
+  return {
+    version: 2,
+    tasks: Array.from(taskMap.values()),
+    lists: Array.from(listMap.values()),
+    habits: Array.from(habitMap.values()),
+    ideas,
+    focus: remote.focus || local.focus || [],
+    theme: local.theme || remote.theme || 'light',
+  };
+}
+

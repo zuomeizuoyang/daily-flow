@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {CheckSquare,CalendarDays,Inbox,Sun,CalendarRange,Layers,Hash,Plus,Search,ChevronDown,ChevronRight,Timer,Grid2X2,Flame,Settings,PanelLeftClose,PanelLeft,ArrowDownWideNarrow,LayoutList,Columns3,Trash2,Download,Upload,Flag,X,RefreshCw,Cloud,CloudOff,Lock,Lightbulb} from 'lucide-react';
-import {newTask,parseQuick,priorities,weights,matches,toggleTask,validateStore,mergeStore,uid,type Store,type Task} from './model';
-import {loadStore,saveStore,download,STORAGE_KEY} from './repository';
+import {newTask,parseQuick,priorities,weights,matches,toggleTask,validateStore,mergeStore,syncMergeStores,uid,type Store,type Task} from './model';
+import {loadStore,saveStore,download,getSnapshots,STORAGE_KEY} from './repository';
 import {loadSupabaseConfig,saveSupabaseConfig,fetchRemoteStore,pushRemoteStore,subscribeRemoteStore,sessionClientId,deriveSyncKey,getSavedAuthPassword,saveAuthPassword,clearAuthPassword,type SupabaseConfig} from './supabase';
 import {localDate,hm,shiftDate,schedule} from './scheduler';
 import {TaskRow,Empty} from './components/TaskRow';
@@ -30,6 +30,8 @@ export default function App(){
  const [syncError,setSyncError]=useState('');
  const [showSql,setShowSql]=useState(false);
  const isRemoteApplying=useRef(false);
+ const isInitialSyncDone=useRef(false);
+ const latestStore=useRef(store); latestStore.current=store;
  const syncTimer=useRef<number|null>(null);
  const addInput=useRef<HTMLInputElement>(null),fileInput=useRef<HTMLInputElement>(null);
  const change=useCallback((fn:(s:Store)=>Store)=>setStore(fn),[]);
@@ -59,19 +61,43 @@ export default function App(){
  useEffect(()=>{const id=setInterval(()=>setToday(localDate()),30000);return()=>clearInterval(id)},[]);
  useEffect(()=>{if(!toast)return;const id=setTimeout(()=>setToast(''),4500);return()=>clearTimeout(id)},[toast]);
  useEffect(()=>{
-  if(!syncCfg.enabled||!syncCfg.url||!syncCfg.anonKey){setSyncStatus('disconnected');return;}
+  if(!syncCfg.enabled||!syncCfg.url||!syncCfg.anonKey){
+   setSyncStatus('disconnected');
+   isInitialSyncDone.current=false;
+   return;
+  }
   let active=true;setSyncStatus('connecting');
   fetchRemoteStore(syncCfg).then(({store:remote,error})=>{
    if(!active)return;
    if(error){setSyncStatus('error');setSyncError(error);return;}
    if(remote){
-    isRemoteApplying.current=true;setStore(remote);saveStore(remote);setSyncStatus('connected');notify('已同步云端最新数据');
+    const merged=syncMergeStores(latestStore.current,remote);
+    isRemoteApplying.current=true;
+    setStore(merged);
+    saveStore(merged);
+    isInitialSyncDone.current=true;
+    setSyncStatus('connected');
+    notify('已同步云端最新数据');
+    if(JSON.stringify(merged.tasks)!==JSON.stringify(remote.tasks)||JSON.stringify(merged.ideas)!==JSON.stringify(remote.ideas)){
+     pushRemoteStore(syncCfg,merged,sessionClientId);
+    }
    }else{
-    pushRemoteStore(syncCfg,store,sessionClientId).then(r=>{if(!active)return;if(r.success)setSyncStatus('connected');else{setSyncStatus('error');setSyncError(r.error||'初始化失败');}});
+    pushRemoteStore(syncCfg,latestStore.current,sessionClientId).then(r=>{
+     if(!active)return;
+     if(r.success){isInitialSyncDone.current=true;setSyncStatus('connected');}
+     else{setSyncStatus('error');setSyncError(r.error||'初始化失败');}
+    });
    }
   });
   const unsub=subscribeRemoteStore(syncCfg,sessionClientId,(remote)=>{
-   if(!active)return;isRemoteApplying.current=true;setStore(remote);saveStore(remote);notify('已接收云端实时更新');
+   if(!active)return;
+   setStore(current=>{
+    const merged=syncMergeStores(current,remote);
+    isRemoteApplying.current=true;
+    saveStore(merged);
+    return merged;
+   });
+   notify('已接收云端实时更新');
   },(st,err)=>{
    if(!active)return;setSyncStatus(st);if(err)setSyncError(err);
   });
@@ -79,6 +105,7 @@ export default function App(){
  },[syncCfg]);
  useEffect(()=>{
   if(!syncCfg.enabled||!syncCfg.url||!syncCfg.anonKey)return;
+  if(!isInitialSyncDone.current)return;
   if(isRemoteApplying.current){isRemoteApplying.current=false;return;}
   if(syncTimer.current)clearTimeout(syncTimer.current);
   setSyncStatus('syncing');
@@ -112,9 +139,9 @@ export default function App(){
  <nav className="module-rail" aria-label="功能导航"><div className="profile">D</div>{modules.map(m=><button key={m.id} aria-label={m.name} title={m.name} className={module===m.id?'active':''} onClick={()=>{setModule(m.id);setSelected(null);setNavOpen(false)}}><m.icon size={23} strokeWidth={1.7}/><span>{m.name}</span></button>)}<div className="rail-spacer"/><button aria-label="锁定应用" title="锁定应用" onClick={handleLock}><Lock size={20}/><span>锁屏</span></button><button aria-label="设置与备份" title="设置与备份" onClick={()=>setModal('settings')}><Settings size={22}/><span>设置</span></button></nav>
  {navOpen&&<button className="nav-backdrop" aria-label="关闭导航" onClick={()=>setNavOpen(false)}/>}
  <aside className="list-sidebar"><header className="sidebar-header"><strong>Daily Flow</strong><small>本地版</small><button className="icon" aria-label="关闭侧边栏" onClick={()=>setNavOpen(false)}><PanelLeftClose size={17}/></button></header><button className="sidebar-search" onClick={()=>{setModule('tasks');setSearchOpen(true)}}><Search size={16}/><span>搜索任务</span><kbd>/</kbd></button><div className="sidebar-items">{smart.map(s=><button key={s.id} className={filter===s.id&&module==='tasks'?'selected':''} onClick={()=>selectFilter(s.id)}><s.icon size={18}/><span>{s.name}</span><small>{count(s.id)||''}</small></button>)}<hr/><div className="sidebar-section"><span><ChevronDown size={13}/>清单</span><button className="icon" aria-label="添加清单" onClick={()=>setModal('list')}><Plus size={16}/></button></div>{store.lists.map(l=><button key={l.id} className={filter==='list:'+l.id&&module==='tasks'?'selected':''} onClick={()=>selectFilter('list:'+l.id)}><Hash size={18} style={{color:l.color}}/><span>{l.name}</span><small>{count('list:'+l.id)||''}</small></button>)}<button className="add-list" onClick={()=>setModal('list')}><Plus size={17}/><span>添加清单</span></button><hr/><div className="sidebar-section"><span><ChevronDown size={13}/>标签</span></div>{tags.length?tags.map(t=><button key={t} className={filter==='tag:'+t&&module==='tasks'?'selected':''} onClick={()=>selectFilter('tag:'+t)}><Hash size={15}/><span>{t}</span></button>):<p className="sidebar-hint">在任务详情中添加标签</p>}<hr/><button className={filter==='completed'&&module==='tasks'?'selected':''} onClick={()=>selectFilter('completed')}><CheckSquare size={17}/><span>已完成</span><small>{count('completed')||''}</small></button><button className={filter==='trash'&&module==='tasks'?'selected':''} onClick={()=>selectFilter('trash')}><Trash2 size={17}/><span>垃圾桶</span><small>{count('trash')||''}</small></button></div><div className="sidebar-bottom" style={{cursor:'pointer'}} onClick={()=>{setEditSync(syncCfg);setModal('settings')}} title="点击配置云端实时同步"><span className={'storage-dot '+(syncCfg.enabled?syncStatus:'offline')}/> {syncCfg.enabled?(syncStatus==='connected'?'云端实时同步中':syncStatus==='syncing'?'正在同步到云端...':syncStatus==='connecting'?'正在连接云端...':syncStatus==='error'?'云同步异常(点击查看)':'云同步已断开'):persistError?'保存需要处理':'单机模式(点击配置云同步)'}</div></aside>
- <main className="workspace"><header className="workspace-header"><div className="workspace-heading"><button className="icon menu-toggle" aria-label="打开清单导航" onClick={()=>setNavOpen(!navOpen)}><PanelLeft size={20}/></button><h1>{module==='tasks'?title:modules.find(m=>m.id===module)?.name}</h1>{module==='tasks'&&<small>{filtered.length}</small>}</div><div className="toolbar">{module==='tasks'&&<><button className="icon" aria-label="搜索" onClick={()=>setSearchOpen(!searchOpen)}><Search size={19}/></button><label className="sort-label"><ArrowDownWideNarrow size={18}/><select aria-label="任务排序" value={sort} onChange={e=>setSort(e.target.value)}><option value="default">创建顺序</option><option value="priority">优先级</option><option value="date">日期</option></select></label><button className="icon" aria-label={view==='list'?'切换看板':'切换列表'} onClick={()=>setView(view==='list'?'board':'list')}>{view==='list'?<Columns3 size={19}/>:<LayoutList size={19}/>}</button></>}{module==='calendar'&&<button className="soft-button" onClick={autoPlan}><RefreshCw size={14}/>安排全天任务</button>}<button className="icon" aria-label="更多设置" onClick={()=>setModal('settings')}><Settings size={18}/></button></div></header>
+ <main className="workspace"><header className="workspace-header"><div className="workspace-heading"><button className="icon menu-toggle" aria-label="打开清单导航" onClick={()=>setNavOpen(!navOpen)}><PanelLeft size={20}/></button><h1 style={{cursor:'pointer'}} title="点击切换清单" onClick={()=>setNavOpen(!navOpen)}>{module==='tasks'?title:modules.find(m=>m.id===module)?.name}</h1>{module==='tasks'&&<small>{filtered.length}</small>}</div><div className="toolbar">{module==='tasks'&&<><button className="icon" aria-label="搜索" onClick={()=>setSearchOpen(!searchOpen)}><Search size={19}/></button><label className="sort-label"><ArrowDownWideNarrow size={18}/><select aria-label="任务排序" value={sort} onChange={e=>setSort(e.target.value)}><option value="default">创建顺序</option><option value="priority">优先级</option><option value="date">日期</option></select></label><button className="icon" aria-label={view==='list'?'切换看板':'切换列表'} onClick={()=>setView(view==='list'?'board':'list')}>{view==='list'?<Columns3 size={19}/>:<LayoutList size={19}/>}</button></>}{module==='calendar'&&<button className="soft-button" onClick={autoPlan}><RefreshCw size={14}/>安排全天任务</button>}<button className="icon" aria-label="更多设置" onClick={()=>setModal('settings')}><Settings size={18}/></button></div></header>
  {persistError&&<div className="error-banner" role="alert">{persistError}</div>}
- {module==='tasks'&&<>{searchOpen&&<div className="search-bar"><Search size={18}/><input autoFocus aria-label="搜索任务" placeholder="搜索名称、描述、标签" value={query} onChange={e=>setQuery(e.target.value)}/><button className="icon" aria-label="关闭搜索" onClick={()=>{setSearchOpen(false);setQuery('')}}><X size={17}/></button></div>}{!['trash','completed'].includes(filter)&&<form className="quick-add" onSubmit={quickAdd}><Plus size={18}/><input ref={addInput} aria-label="快速添加任务" placeholder='添加任务，回车保存，例如「明天 09:00 阅读 #学习」' value={text} onChange={e=>setText(e.target.value)}/><input aria-label="快速添加日期" type="date" value={draftDate??(filter==='today'||filter==='next7'?today:'')} onInput={e=>setDraftDate(e.currentTarget.value)} onChange={e=>setDraftDate(e.target.value)}/><button aria-label="添加任务" type="submit"><Plus size={19}/></button></form>}
+ {module==='tasks'&&<><div className="mobile-filter-strip">{smart.map(s=><button key={s.id} type="button" className={filter===s.id?'active':''} onClick={()=>selectFilter(s.id)}><s.icon size={14}/><span>{s.name}</span>{count(s.id)>0&&<small>{count(s.id)}</small>}</button>)}{store.lists.map(l=><button key={l.id} type="button" className={filter==='list:'+l.id?'active':''} onClick={()=>selectFilter('list:'+l.id)}><Hash size={14} style={{color:l.color}}/><span>{l.name}</span>{count('list:'+l.id)>0&&<small>{count('list:'+l.id)}</small>}</button>)}</div>{searchOpen&&<div className="search-bar"><Search size={18}/><input autoFocus aria-label="搜索任务" placeholder="搜索名称、描述、标签" value={query} onChange={e=>setQuery(e.target.value)}/><button className="icon" aria-label="关闭搜索" onClick={()=>{setSearchOpen(false);setQuery('')}}><X size={17}/></button></div>}{!['trash','completed'].includes(filter)&&<form className="quick-add" onSubmit={quickAdd}><Plus size={18}/><input ref={addInput} aria-label="快速添加任务" placeholder='添加任务，回车保存，例如「明天 09:00 阅读 #学习」' value={text} onChange={e=>setText(e.target.value)}/><input aria-label="快速添加日期" type="date" value={draftDate??(filter==='today'||filter==='next7'?today:'')} onInput={e=>setDraftDate(e.currentTarget.value)} onChange={e=>setDraftDate(e.target.value)}/><button aria-label="添加任务" type="submit"><Plus size={19}/></button></form>}
  <div className="task-content-area">{view==='list'?<><div className="group-heading"><ChevronDown size={14}/><b>{filter==='trash'?'已删除':filter==='completed'?'已完成':query?'搜索结果':'待完成'}</b><span>{filtered.length}</span></div>{(filter==='today'?[{label:'已过期',items:filtered.filter(t=>t.date<today)},{label:'今天',items:filtered.filter(t=>t.date===today)}]:[{label:'',items:filtered}]).map(group=><div key={group.label}>{group.label&&group.items.length>0&&<div className={'date-group '+(group.label==='已过期'?'overdue':'')}>{group.label} · {group.items.length}</div>}{group.items.map(t=><TaskRow key={t.id} task={t} lists={store.lists} selected={selected===t.id} onSelect={()=>setSelected(t.id)} onToggle={()=>filter==='trash'?patch(t.id,{deleted:false}):toggle(t.id)}/>)}</div>)}{!filtered.length&&<Empty text={query?'没有找到相关任务，换个关键词试试。':filter==='trash'?'删除的任务会保留在这里，可以随时恢复。':'添加一个任务，开始安排你的工作和生活。'}/>}</>:<div className="kanban">{(Object.keys(priorities) as (keyof typeof priorities)[]).map(p=><section key={p} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const id=e.dataTransfer.getData('text/task');if(id)patch(id,{priority:p})}}><h3><Flag size={14} className={'priority-'+p}/>{priorities[p]}<small>{filtered.filter(t=>t.priority===p).length}</small></h3>{filtered.filter(t=>t.priority===p).map(t=><TaskRow key={t.id} task={t} lists={store.lists} selected={selected===t.id} onSelect={()=>setSelected(t.id)} onToggle={()=>toggle(t.id)}/>)}</section>)}</div>}
  {!['completed','trash'].includes(filter)&&completed.length>0&&<><button className="completed-heading" onClick={()=>setShowDone(!showDone)}>{showDone?<ChevronDown size={14}/>:<ChevronRight size={14}/>}已完成 {completed.length}</button>{showDone&&completed.map(t=><TaskRow key={t.id} task={t} lists={store.lists} selected={selected===t.id} onSelect={()=>setSelected(t.id)} onToggle={()=>toggle(t.id)}/>)}</>}</div><footer className="list-footer"><span>{filtered.reduce((n,t)=>n+t.minutes,0)} 分钟预计时长</span><span>Q 快速添加 · / 搜索</span></footer></>}
  {module==='calendar'&&<CalendarView tasks={store.tasks} date={date} onDate={setDate} onCreate={create} onMove={move} onSelect={setSelected}/>}
@@ -158,6 +185,19 @@ create table if not exists daily_flow_store (
 alter table daily_flow_store enable row level security;
 create policy "Allow anon access" on daily_flow_store for all using (true) with check (true);
 alter publication supabase_realtime add table daily_flow_store;`}</div>}
+  </div>
+  <h3>🕒 自动快照历史（防丢失恢复）</h3>
+  <p>系统每次变动均自动保留最近快照。若遇到误操作或多端覆盖，可随时一键恢复：</p>
+  <div className="snapshots-list">
+   {getSnapshots().length===0?<small style={{color:'var(--muted)'}}>暂无快照记录</small>:getSnapshots().slice(0,5).map((snap,idx)=>(
+    <div key={snap.time} className="snapshot-item">
+     <div>
+      <strong>{idx===0?'⭐ 最新自动快照':`快照 ${idx+1}`}</strong>
+      <small>{new Date(snap.time).toLocaleTimeString()} · {snap.taskCount} 个任务 · {snap.ideaCount} 条灵感</small>
+     </div>
+     <button className="soft-button" onClick={()=>{change(()=>snap.data);notify('已成功恢复到该快照版本！');setModal(null);}}>一键恢复</button>
+    </div>
+   ))}
   </div>
   <h3>本地备份与安全</h3><p>数据保存在当前浏览器及你的专属云端房间。不同设备、地址或端口不会自动同步。</p><div className="backup-actions"><button className="soft-button" onClick={()=>download('daily-flow-'+today+'.json',JSON.stringify(store,null,2))}><Download size={16}/>导出备份</button><button className="soft-button" onClick={()=>fileInput.current?.click()}><Upload size={16}/>导入备份</button><button className="soft-button" style={{color:'#e77b79'}} onClick={handleLock}><Lock size={15}/> 锁定并退出</button><input ref={fileInput} type="file" aria-label="选择备份文件" accept="application/json,.json" hidden onChange={e=>importData(e.target.files?.[0])}/></div>{initial.error&&<button className="soft-button" onClick={()=>download('daily-flow-raw.json',JSON.stringify({current:localStorage.getItem(STORAGE_KEY),legacy:localStorage.getItem('daily-flow-tasks')},null,2))}>导出原始数据</button>}{pendingImport&&<div className="import-preview"><p>已验证 {pendingImport.tasks.length} 个任务、{pendingImport.lists.length} 个清单。导入会合并清单，新增任务、习惯和专注记录副本，不覆盖当前数据。</p><button className="primary" onClick={mergeImport}>确认合并导入</button><button className="soft-button" onClick={()=>setPendingImport(null)}>取消</button></div>}<h3>当前本地版范围</h3><p>支持任务、清单、标签、子任务、重复任务、日／周／月日历、看板、四象限、专注和习惯。本版支持 Supabase 实时多端同步，手机电脑随时秒连。</p><small>旧版任务会自动迁入，原 daily-flow-tasks 数据保留。</small></div></Modal>}
  </div>;
